@@ -14,6 +14,9 @@
 		B0A181FF28C4D07B00AE2D55 /* HasherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A181FE28C4D07B00AE2D55 /* HasherTests.swift */; };
 		B0A1820928C4D07B00AE2D55 /* HasherUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1820828C4D07B00AE2D55 /* HasherUITests.swift */; };
 		B0A1820B28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1820A28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift */; };
+		B0C5677528C505260008B8B4 /* Home.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677428C505260008B8B4 /* Home.swift */; };
+		B0C5677828C505670008B8B4 /* HashSet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677728C505670008B8B4 /* HashSet.swift */; };
+		B0C5677D28C5D9220008B8B4 /* Computer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677C28C5D9220008B8B4 /* Computer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +47,9 @@
 		B0A1820428C4D07B00AE2D55 /* HasherUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HasherUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0A1820828C4D07B00AE2D55 /* HasherUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HasherUITests.swift; sourceTree = "<group>"; };
 		B0A1820A28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HasherUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		B0C5677428C505260008B8B4 /* Home.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home.swift; sourceTree = "<group>"; };
+		B0C5677728C505670008B8B4 /* HashSet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashSet.swift; sourceTree = "<group>"; };
+		B0C5677C28C5D9220008B8B4 /* Computer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Computer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +100,8 @@
 		B0A181EC28C4D06F00AE2D55 /* Hasher */ = {
 			isa = PBXGroup;
 			children = (
+				B0C5677628C505580008B8B4 /* Model */,
+				B0C5677328C505070008B8B4 /* View */,
 				B0A181ED28C4D06F00AE2D55 /* HasherApp.swift */,
 				B0A181EF28C4D06F00AE2D55 /* ContentView.swift */,
 				B0A181F128C4D07A00AE2D55 /* Assets.xcassets */,
@@ -125,6 +133,23 @@
 				B0A1820A28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift */,
 			);
 			path = HasherUITests;
+			sourceTree = "<group>";
+		};
+		B0C5677328C505070008B8B4 /* View */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5677428C505260008B8B4 /* Home.swift */,
+			);
+			path = View;
+			sourceTree = "<group>";
+		};
+		B0C5677628C505580008B8B4 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5677728C505670008B8B4 /* HashSet.swift */,
+				B0C5677C28C5D9220008B8B4 /* Computer.swift */,
+			);
+			path = Model;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -257,7 +282,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0C5677D28C5D9220008B8B4 /* Computer.swift in Sources */,
+				B0C5677828C505670008B8B4 /* HashSet.swift in Sources */,
 				B0A181F028C4D06F00AE2D55 /* ContentView.swift in Sources */,
+				B0C5677528C505260008B8B4 /* Home.swift in Sources */,
 				B0A181EE28C4D06F00AE2D55 /* HasherApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
