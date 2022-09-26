@@ -19,9 +19,9 @@ extension String {
 }
 
 
-class HashComputer: ObservableObject {
+class HashComputer {
 
-    @Published var counter = 0
+    var counter = 0
     var hashSet: [String: String] = [:]
 
     func compute(stopClause: Int ){
