@@ -16,7 +16,7 @@
 		B0A1820B28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1820A28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift */; };
 		B0C5677528C505260008B8B4 /* Home.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677428C505260008B8B4 /* Home.swift */; };
 		B0C5677828C505670008B8B4 /* HashSet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677728C505670008B8B4 /* HashSet.swift */; };
-		B0C5677D28C5D9220008B8B4 /* Computer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677C28C5D9220008B8B4 /* Computer.swift */; };
+		B0C5677D28C5D9220008B8B4 /* HashComputer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677C28C5D9220008B8B4 /* HashComputer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,7 +49,7 @@
 		B0A1820A28C4D07B00AE2D55 /* HasherUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HasherUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		B0C5677428C505260008B8B4 /* Home.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home.swift; sourceTree = "<group>"; };
 		B0C5677728C505670008B8B4 /* HashSet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashSet.swift; sourceTree = "<group>"; };
-		B0C5677C28C5D9220008B8B4 /* Computer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Computer.swift; sourceTree = "<group>"; };
+		B0C5677C28C5D9220008B8B4 /* HashComputer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashComputer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -147,7 +147,7 @@
 			isa = PBXGroup;
 			children = (
 				B0C5677728C505670008B8B4 /* HashSet.swift */,
-				B0C5677C28C5D9220008B8B4 /* Computer.swift */,
+				B0C5677C28C5D9220008B8B4 /* HashComputer.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -282,7 +282,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B0C5677D28C5D9220008B8B4 /* Computer.swift in Sources */,
+				B0C5677D28C5D9220008B8B4 /* HashComputer.swift in Sources */,
 				B0C5677828C505670008B8B4 /* HashSet.swift in Sources */,
 				B0A181F028C4D06F00AE2D55 /* ContentView.swift in Sources */,
 				B0C5677528C505260008B8B4 /* Home.swift in Sources */,

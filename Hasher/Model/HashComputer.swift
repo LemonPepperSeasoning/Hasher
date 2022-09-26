@@ -19,18 +19,16 @@ extension String {
 }
 
 
-class Computer {
-    
+class HashComputer: ObservableObject {
+
+    @Published var counter = 0
     var hashSet: [String: String] = [:]
-    var counter = 0
 
-    func compute(){
-        while (true) {
+    func compute(stopClause: Int ){
+        while ( counter < stopClause) {
             counter += 1
-            if (counter > 10){
-                break
-            }
-
+            
+            
             let randomString = generateRandomString(length: 10)
             let hexString = randomString.hash256()
                 
@@ -47,6 +45,27 @@ class Computer {
             hashSet[hexString] = randomString
         }
     }
+    
+
+    func computeOne(){
+        counter += 1
+        
+        let randomString = generateRandomString(length: 10)
+        let hexString = randomString.hash256()
+            
+        if (hashSet[hexString] != nil){
+            // Duplicate found
+            let value = hashSet[hexString]
+            if (value != randomString){
+                // Found hash collision
+                print("--- HASH COLLISION FOUND ---")
+                print(value)
+                print(randomString)
+            }
+        }
+        hashSet[hexString] = randomString
+    }
+    
 
     func generateRandomString(length : Int) -> String{
         let characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
