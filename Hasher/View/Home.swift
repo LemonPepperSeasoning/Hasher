@@ -10,39 +10,71 @@ import SwiftUI
 
 struct Home: View {
     
+    var hashComputer = HashComputer()
+    
+    
     @State var count: Int = 0
     @State var isComputing: Bool = false
-    var hashComputer = HashComputer()
+    @State var collision: [String]? = nil
+    @State var collisionFound: Bool = false
     @State private var workItem: DispatchWorkItem?
     var body: some View {
         
-        VStack {
-            Text("Search hash collision")
-                .font(.system(size: 22, weight: .heavy, design: .default))
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                .padding(10)
+        VStack() {
+            Image("logo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame( minWidth:0, maxWidth: .infinity, minHeight: 0, maxHeight: 50, alignment: .leading)
+                .padding(.bottom, 20)
             
-
+        
+            Text("Search hash collision : SHA 256")
+                .font(.system(size: 20, weight: .heavy, design: .default))
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 20)
+        
+            VStack(){
+                Text("Number of Hash searched:")
+                    .font(.system(size: 18, weight: .heavy, design: .default))
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
                 
-            Text("Number of Hash searched:")
-                .font(.system(size: 16, weight: .light, design: .default))
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                .padding(10)
+                Text(String(count))
+                    .font(.system(size: 64, weight: .light, design: .default))
+                    .padding(10)
+            }
+            .cornerRadius(10)
+        
+        
+            Spacer()
             
-
-            Text(String(count))
-                .font(.system(size: 20))
+            if collisionFound {
+                VStack{
+                    Text("Collision found !")
+                        .font(.system(size: 18, weight: .heavy, design: .default))
+                    VStack{
+                        Text("String A: \(collision![0])")
+                            .font(.system(size: 16, weight: .heavy, design: .default))
+                        Text("String B: \(collision![1])")
+                            .font(.system(size: 16, weight: .heavy, design: .default))
+                    }
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .center)
+                .padding(10)
+                .background(.red)
+                .cornerRadius(5)
+            }
             
             Button(action: startpausseButtonOnClick){
                 Text(isComputing ? "Pause" : "Start")
                     .frame(width: 100, height: 30, alignment: .center)
             }
             .buttonStyle(.bordered)
+            .padding(.bottom, 40)
             
         }
         .padding()
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
-        
     }
     
     func startpausseButtonOnClick(){
@@ -57,10 +89,13 @@ struct Home: View {
     }
     
     func startCompute() {
-        let plus10 = count + 10
         self.workItem = DispatchWorkItem {
             while ( (self.workItem?.isCancelled) != true ) {
-                hashComputer.computeOne()
+                collision = hashComputer.computeOne()
+                if collision != nil{
+                    collisionFound = true
+                    break
+                }
                 DispatchQueue.main.async { count += 1}
             }
         }
@@ -72,6 +107,8 @@ struct Home: View {
     }
     
     func pauseCompute(){
+        collision = nil
+        collisionFound = false
         DispatchQueue.global().asyncAfter(deadline: .now()) {
             self.workItem?.cancel()
         }
