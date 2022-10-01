@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+      - name: Force Xcode 11
+        run: sudo xcode-select -switch /Applications/Xcode_11.3.app
       - name: Run tests
         run: xcodebuild -project 'Hasher.xcodeproj' -scheme 'Hasher' -destination 'platform=iOS Simulator,name=iPhone 11 Pro Max,OS=13.2' clean test
       - name: Build App
