@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v1
       - name: Build
         run: |
-          xcodebuild clean build analyze test -scheme Hasher -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 11' 
+          xcrun simctl create "iPhone 11" "com.apple.CoreSimulator.SimDeviceType.iPhone-8" "com.apple.CoreSimulator.SimRuntime.iOS-15-5"
       - name: Set Default Scheme
         run: |
           scheme_list=$(xcodebuild -list -json | tr -d "\n")
