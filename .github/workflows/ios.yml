@@ -28,7 +28,7 @@ jobs:
         env:
           scheme: ${{ 'default' }}
           platform: ${{ 'iOS Simulator' }}
-          device: ${{ 'iPhone 11 Pro' }}
+          device: ${{ 'iPhone-11' }}
           os: ${{ '15.2' }}
         run: |
           # xcrun xctrace returns via stderr, not the expected stdout (see https://developer.apple.com/forums/thread/663959)
