@@ -19,6 +19,7 @@ jobs:
            sudo mkdir -p /Library/Developer/CoreSimulator/Profiles/Runtimes
            sudo ln -s /Applications/Xcode_10.3.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/CoreSimulator/Profiles/Runtimes/iOS.simruntime /Library/Developer/CoreSimulator/Profiles/Runtimes/iOS\ 12.4.simruntime
            xcrun simctl list runtimes
+           xcrun simctl list
            xcrun simctl create custom-test-device "iPad Pro (9.7-inch)" "com.apple.CoreSimulator.SimRuntime.iOS-12-4"
            xcrun simctl list devices 12.4
       - name: Set Default Scheme
