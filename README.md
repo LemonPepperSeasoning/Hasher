@@ -16,6 +16,8 @@
 
 Hasha is a open source ios-app, which uses brute-force algorithm to find SHA-256 hash collision.
 
+For how the search works (Pollard's rho, distinguished points and the Metal GPU walkers), see [docs/algorithm.md](docs/algorithm.md).
+
 ## License
 
 [MIT license](LICENSE)<br/>
