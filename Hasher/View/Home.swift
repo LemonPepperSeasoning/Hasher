@@ -128,11 +128,7 @@ struct Home: View {
     
     private var statusText: String {
         let rate = search.hashesPerSecond > 0 ? "\(Self.abbreviated(search.hashesPerSecond)) hashes/s · " : ""
-        switch search.phase {
-        case .findCycle: return rate + "walking until the path loops"
-        case .advanceHare: return rate + "loop found, measuring the tail"
-        case .findJunction: return rate + "closing in on the collision"
-        }
+        return rate + "\(search.walkers) walkers · \(search.storedPoints) points stored"
     }
     
     private func digestText(_ label: String, _ hex: String, bits: Int) -> Text {

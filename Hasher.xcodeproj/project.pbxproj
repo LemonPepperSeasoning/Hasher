@@ -17,7 +17,7 @@
 		B0C5677528C505260008B8B4 /* Home.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677428C505260008B8B4 /* Home.swift */; };
 		B0C5677828C505670008B8B4 /* HashSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677728C505670008B8B4 /* HashSearch.swift */; };
 		B0C5677D28C5D9220008B8B4 /* HashComputer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677C28C5D9220008B8B4 /* HashComputer.swift */; };
-		9193DC9A213B40C0775F8649 /* RhoSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD08C862065DDC06BE5121D /* RhoSearch.swift */; };
+		9193DC9A213B40C0775F8649 /* DistinguishedPointSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,7 +51,7 @@
 		B0C5677428C505260008B8B4 /* Home.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home.swift; sourceTree = "<group>"; };
 		B0C5677728C505670008B8B4 /* HashSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashSearch.swift; sourceTree = "<group>"; };
 		B0C5677C28C5D9220008B8B4 /* HashComputer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashComputer.swift; sourceTree = "<group>"; };
-		AAD08C862065DDC06BE5121D /* RhoSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RhoSearch.swift; sourceTree = "<group>"; };
+		AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistinguishedPointSearch.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,7 +148,7 @@
 		B0C5677628C505580008B8B4 /* Model */ = {
 			isa = PBXGroup;
 			children = (
-				AAD08C862065DDC06BE5121D /* RhoSearch.swift */,
+				AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */,
 				B0C5677728C505670008B8B4 /* HashSearch.swift */,
 				B0C5677C28C5D9220008B8B4 /* HashComputer.swift */,
 			);
@@ -285,7 +285,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9193DC9A213B40C0775F8649 /* RhoSearch.swift in Sources */,
+				9193DC9A213B40C0775F8649 /* DistinguishedPointSearch.swift in Sources */,
 				B0C5677D28C5D9220008B8B4 /* HashComputer.swift in Sources */,
 				B0C5677828C505670008B8B4 /* HashSearch.swift in Sources */,
 				B0A181F028C4D06F00AE2D55 /* ContentView.swift in Sources */,

@@ -5,7 +5,8 @@
 
 import Foundation
 
-/// Runs a `RhoSearch` on a private serial queue, publishes progress on the main thread,
+/// Runs a `DistinguishedPointSearch` (one walker per CPU core) from a private serial queue,
+/// publishes progress on the main thread,
 /// and saves the search so it survives pauses and relaunches.
 final class HashSearch: ObservableObject {
 
@@ -16,15 +17,17 @@ final class HashSearch: ObservableObject {
     @Published private(set) var count: UInt64
     @Published private(set) var hashesPerSecond: Double = 0
     @Published private(set) var isComputing = false
-    @Published private(set) var phase: RhoSearch.Phase
+    @Published private(set) var walkers: Int
+    @Published private(set) var storedPoints: Int
     @Published private(set) var collision: Collision?
 
-    private static let batchSize = 50_000
-    private static let storageKey = "HashSearch.rho.v1"
+    /// How long all walkers run between progress updates.
+    private static let roundSeconds = 0.05
+    private static let storageKey = "HashSearch.dp.v1"
 
     // `search` is only touched on `queue`.
     private let queue = DispatchQueue(label: "Hasher.HashSearch", qos: .userInitiated)
-    private var search: RhoSearch
+    private var search: DistinguishedPointSearch
     private let defaults: UserDefaults
     // Bumped synchronously on every start/stop, so queued or in-flight work from an earlier run is dropped.
     private let generationLock = NSLock()
@@ -34,12 +37,13 @@ final class HashSearch: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let saved = defaults.data(forKey: Self.storageKey).flatMap { try? JSONDecoder().decode(RhoSearch.self, from: $0) }
-        let search = saved ?? RhoSearch(bits: Self.defaultBits)
+        let saved = defaults.data(forKey: Self.storageKey).flatMap { try? PropertyListDecoder().decode(DistinguishedPointSearch.self, from: $0) }
+        let search = saved ?? DistinguishedPointSearch(bits: Self.defaultBits)
         self.search = search
         bits = search.step.bits
         count = search.hashes
-        phase = search.phase
+        walkers = search.walkers.count
+        storedPoints = search.points.count
         collision = search.collision
     }
 
@@ -79,11 +83,11 @@ final class HashSearch: ObservableObject {
         self.bits = bits
         count = 0
         collision = nil
-        phase = .findCycle
+        storedPoints = 0
         bumpGeneration()
         queue.async { [weak self] in
             guard let self else { return }
-            self.search = RhoSearch(bits: bits)
+            self.search = DistinguishedPointSearch(bits: bits)
             self.persist()
         }
     }
@@ -95,7 +99,9 @@ final class HashSearch: ObservableObject {
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(search) {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        if let data = try? encoder.encode(search) {
             defaults.set(data, forKey: Self.storageKey)
         }
     }
@@ -117,9 +123,9 @@ final class HashSearch: ObservableObject {
     private func runBatch(generation: Int) {
         guard isCurrent(generation) else { return }
 
-        let found = search.run(maxHashes: Self.batchSize)
+        let found = search.run(seconds: Self.roundSeconds)
         let count = search.hashes
-        let phase = search.phase
+        let storedPoints = search.points.count
         if found != nil {
             persist()
         }
@@ -127,7 +133,7 @@ final class HashSearch: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isCurrent(generation) else { return }
             self.count = count
-            self.phase = phase
+            self.storedPoints = storedPoints
             self.updateRate(count: count)
             if let found {
                 self.collision = found
