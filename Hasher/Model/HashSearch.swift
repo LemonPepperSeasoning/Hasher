@@ -4,44 +4,48 @@
 //
 
 import Foundation
-import UIKit
 
-/// Runs `HashComputer` on a private serial queue and publishes progress to the UI on the main thread.
+/// Runs a `RhoSearch` on a private serial queue, publishes progress on the main thread,
+/// and saves the search so it survives pauses and relaunches.
 final class HashSearch: ObservableObject {
 
-    @Published private(set) var count: UInt64 = 0
+    static let bitOptions = [24, 32, 40, 48, 56, 64, 80, 128, 256]
+    static let defaultBits = 256
+
+    @Published private(set) var bits: Int
+    @Published private(set) var count: UInt64
+    @Published private(set) var hashesPerSecond: Double = 0
     @Published private(set) var isComputing = false
-    @Published private(set) var isTableFull = false
+    @Published private(set) var phase: RhoSearch.Phase
     @Published private(set) var collision: Collision?
 
-    private static let batchSize = 20_000
+    private static let batchSize = 50_000
+    private static let storageKey = "HashSearch.rho.v1"
 
-    // `computer` is only touched on `queue`.
+    // `search` is only touched on `queue`.
     private let queue = DispatchQueue(label: "Hasher.HashSearch", qos: .userInitiated)
-    private let computer = HashComputer()
+    private var search: RhoSearch
+    private let defaults: UserDefaults
     // Bumped synchronously on every start/stop, so queued or in-flight work from an earlier run is dropped.
     private let generationLock = NSLock()
     private var generation = 0
 
-    private var memoryWarningObserver: NSObjectProtocol?
+    private var rateSample: (time: Date, count: UInt64)?
 
-    init() {
-        memoryWarningObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.queue.async {
-                print("Memory warning: clearing stored hashes")
-                self?.computer.clearStoredHashes()
-            }
-        }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let saved = defaults.data(forKey: Self.storageKey).flatMap { try? JSONDecoder().decode(RhoSearch.self, from: $0) }
+        let search = saved ?? RhoSearch(bits: Self.defaultBits)
+        self.search = search
+        bits = search.step.bits
+        count = search.hashes
+        phase = search.phase
+        collision = search.collision
     }
 
-    deinit {
-        if let memoryWarningObserver {
-            NotificationCenter.default.removeObserver(memoryWarningObserver)
-        }
+    /// Expected hashes for a birthday-style search over `bits` bits: √(πN/2).
+    static func expectedHashes(bits: Int) -> Double {
+        (Double.pi / 2).squareRoot() * pow(2, Double(bits) / 2)
     }
 
     func toggle() {
@@ -50,8 +54,11 @@ final class HashSearch: ObservableObject {
 
     func start() {
         guard !isComputing else { return }
+        if collision != nil {
+            newSearch(bits: bits)
+        }
         isComputing = true
-        collision = nil
+        rateSample = nil
         let generation = bumpGeneration()
         queue.async { [weak self] in
             self?.runBatch(generation: generation)
@@ -61,7 +68,36 @@ final class HashSearch: ObservableObject {
     func pause() {
         guard isComputing else { return }
         isComputing = false
+        hashesPerSecond = 0
         bumpGeneration()
+        save()
+    }
+
+    /// Starts over with a fresh salt. Only allowed while paused.
+    func newSearch(bits: Int) {
+        guard !isComputing else { return }
+        self.bits = bits
+        count = 0
+        collision = nil
+        phase = .findCycle
+        bumpGeneration()
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.search = RhoSearch(bits: bits)
+            self.persist()
+        }
+    }
+
+    func save() {
+        queue.async { [weak self] in
+            self?.persist()
+        }
+    }
+
+    private func persist() {
+        if let data = try? JSONEncoder().encode(search) {
+            defaults.set(data, forKey: Self.storageKey)
+        }
     }
 
     @discardableResult
@@ -81,23 +117,22 @@ final class HashSearch: ObservableObject {
     private func runBatch(generation: Int) {
         guard isCurrent(generation) else { return }
 
-        var found: Collision?
-        for _ in 0..<Self.batchSize {
-            if let collision = computer.computeOne() {
-                found = collision
-                break
-            }
+        let found = search.run(maxHashes: Self.batchSize)
+        let count = search.hashes
+        let phase = search.phase
+        if found != nil {
+            persist()
         }
 
-        let count = computer.counter
-        let isTableFull = computer.isTableFull
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.isCurrent(generation) else { return }
             self.count = count
-            self.isTableFull = isTableFull
-            if let found, self.isCurrent(generation) {
+            self.phase = phase
+            self.updateRate(count: count)
+            if let found {
                 self.collision = found
                 self.isComputing = false
+                self.hashesPerSecond = 0
             }
         }
 
@@ -107,5 +142,17 @@ final class HashSearch: ObservableObject {
                 self?.runBatch(generation: generation)
             }
         }
+    }
+
+    private func updateRate(count: UInt64) {
+        let now = Date()
+        guard let sample = rateSample else {
+            rateSample = (now, count)
+            return
+        }
+        let elapsed = now.timeIntervalSince(sample.time)
+        guard elapsed >= 0.5, count >= sample.count else { return }
+        hashesPerSecond = Double(count - sample.count) / elapsed
+        rateSample = (now, count)
     }
 }

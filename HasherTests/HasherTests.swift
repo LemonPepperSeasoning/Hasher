@@ -6,38 +6,70 @@
 //
 
 import XCTest
+import CryptoKit
 @testable import Hasher
 
 class HasherTests: XCTestCase {
 
-    func testComputeOneStoresHashes() {
-        let computer = HashComputer()
-        for _ in 0..<10_000 {
-            XCTAssertNil(computer.computeOne())
-        }
-        XCTAssertEqual(computer.counter, 10_000)
-        XCTAssertEqual(computer.storedCount, 10_000)
+    private var defaults: UserDefaults!
+
+    override func setUpWithError() throws {
+        defaults = UserDefaults(suiteName: "HasherTests")
+        defaults.removePersistentDomain(forName: "HasherTests")
     }
 
-    func testTableIsCappedAndMemoryStaysBounded() {
-        let computer = HashComputer()
-        let before = memoryFootprint()
-        for _ in 0..<(HashComputer.maxStoredHashes + 50_000) {
-            _ = computer.computeOne()
+    func testStepMatchesCryptoKitAndIsTruncated() {
+        let step = HashStep(bits: 40, salt0: 0x0123456789abcdef, salt1: 0xfedcba9876543210)
+        let x = Point(w0: 0xaabbccdd00000000, w1: 0, w2: 0, w3: 0)
+
+        var message = Data()
+        for word in [step.salt0, step.salt1, x.w0, x.w1, x.w2, x.w3] {
+            withUnsafeBytes(of: word.bigEndian) { message.append(contentsOf: $0) }
         }
-        XCTAssertTrue(computer.isTableFull)
-        XCTAssertEqual(computer.storedCount, HashComputer.maxStoredHashes)
+        let expected = SHA256.hash(data: message).map { String(format: "%02x", $0) }.joined()
 
-        let grownMB = Double(Int64(memoryFootprint()) - Int64(before)) / 1_048_576
-        print("Table memory: \(grownMB) MB")
-        XCTAssertLessThan(grownMB, 300)
+        XCTAssertEqual(step.digest(x).hex(), expected)
+        XCTAssertEqual(step(x).hex(bits: 40), String(expected.prefix(10)))
+        XCTAssertEqual(step(x), step(x).masked(toBits: 40), "bits past 40 must be zero")
+    }
 
-        computer.clearStoredHashes()
-        XCTAssertEqual(computer.storedCount, 0)
+    func testRhoFindsRealCollisions() {
+        for bits in [24, 32] {
+            var search = RhoSearch(bits: bits)
+            var collision: Collision?
+            while collision == nil {
+                collision = search.run(maxHashes: 100_000)
+            }
+            let found = collision!
+            XCTAssertNotEqual(found.inputA, found.inputB)
+            XCTAssertNotEqual(found.digestA, found.digestB, "full digests should still differ")
+            XCTAssertEqual(found.digestA.prefix(bits / 4), found.digestB.prefix(bits / 4))
+        }
+    }
+
+    func testRhoResumesFromSavedState() throws {
+        let step = HashStep(bits: 32, salt0: 1, salt1: 2)
+        let start = Point(w0: 0x1234567800000000)
+
+        var straight = RhoSearch(step: step, start: start)
+        var expected: Collision?
+        while expected == nil {
+            expected = straight.run(maxHashes: 1_000_000)
+        }
+
+        // Same walk, but saved and restored every 777 hashes.
+        var resumed = RhoSearch(step: step, start: start)
+        var found: Collision?
+        while found == nil {
+            found = resumed.run(maxHashes: 777)
+            let data = try JSONEncoder().encode(resumed)
+            resumed = try JSONDecoder().decode(RhoSearch.self, from: data)
+        }
+        XCTAssertEqual(found, expected)
     }
 
     func testRapidStartPauseRunsOnlyOneLoopAndStops() {
-        let search = HashSearch()
+        let search = HashSearch(defaults: defaults)
         for _ in 0..<500 {
             search.toggle()
         }
@@ -54,10 +86,27 @@ class HasherTests: XCTestCase {
         XCTAssertEqual(search.count, countAfterPause, "a loop kept running after pause")
     }
 
+    func testSearchFindsCollisionAndRestoresIt() {
+        let search = HashSearch(defaults: defaults)
+        search.newSearch(bits: 32)
+        search.start()
+        let deadline = Date().addingTimeInterval(60)
+        while search.collision == nil && Date() < deadline {
+            waitForMainQueue(seconds: 0.2)
+        }
+        XCTAssertNotNil(search.collision)
+        XCTAssertFalse(search.isComputing)
+        waitForMainQueue(seconds: 0.2)
+
+        let relaunched = HashSearch(defaults: defaults)
+        XCTAssertEqual(relaunched.bits, 32)
+        XCTAssertEqual(relaunched.collision, search.collision)
+    }
+
     func testSearchIsReleased() {
         weak var weakSearch: HashSearch?
         do {
-            let search = HashSearch()
+            let search = HashSearch(defaults: defaults)
             weakSearch = search
             search.start()
             waitForMainQueue(seconds: 0.2)
@@ -71,17 +120,6 @@ class HasherTests: XCTestCase {
         let done = expectation(description: "wait")
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { done.fulfill() }
         wait(for: [done], timeout: seconds + 5)
-    }
-
-    private func memoryFootprint() -> UInt64 {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-            }
-        }
-        return result == KERN_SUCCESS ? info.phys_footprint : 0
     }
 
 }

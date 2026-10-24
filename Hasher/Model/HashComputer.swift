@@ -8,119 +8,82 @@
 import Foundation
 import CryptoKit
 
-extension String {
+/// A value in the search space: the first `bits` bits of a 256-bit number (big-endian words), the rest zero.
+struct Point: Hashable, Codable {
+    var w0: UInt64 = 0
+    var w1: UInt64 = 0
+    var w2: UInt64 = 0
+    var w3: UInt64 = 0
 
-    func hash256() -> String {
-        let inputData = Data(utf8)
-        let hashed = SHA256.hash(data: inputData)
-        return hashed.compactMap { String(format: "%02x", $0) }.joined()
+    var words: [UInt64] { [w0, w1, w2, w3] }
+
+    func masked(toBits bits: Int) -> Point {
+        func mask(_ word: Int) -> UInt64 {
+            let kept = min(max(bits - 64 * word, 0), 64)
+            return kept == 0 ? 0 : ~0 << (64 - kept)
+        }
+        return Point(w0: w0 & mask(0), w1: w1 & mask(1), w2: w2 & mask(2), w3: w3 & mask(3))
     }
 
-    subscript(value: CountableClosedRange<Int>) -> Substring {
-        self[index(at: value.lowerBound)...index(at: value.upperBound)]
-    }
-
-    subscript(value: CountableRange<Int>) -> Substring {
-        self[index(at: value.lowerBound)..<index(at: value.upperBound)]
-    }
-
-    subscript(value: PartialRangeUpTo<Int>) -> Substring {
-        self[..<index(at: value.upperBound)]
-    }
-
-    subscript(value: PartialRangeThrough<Int>) -> Substring {
-        self[...index(at: value.upperBound)]
-    }
-
-    subscript(value: PartialRangeFrom<Int>) -> Substring {
-        self[index(at: value.lowerBound)...]
-    }
-
-}
-
-private extension String {
-    func index(at offset: Int) -> String.Index {
-        index(startIndex, offsetBy: offset)
+    func hex(bits: Int = 256) -> String {
+        String(words.map { String(format: "%016llx", $0) }.joined().prefix((bits + 3) / 4))
     }
 }
 
+/// The function the search walks: x -> first `bits` bits of SHA-256(salt || x).
+///
+/// Comparing only the first `bits` bits is what makes collisions findable at small sizes;
+/// at 256 bits this is plain SHA-256 on a 48-byte message.
+struct HashStep: Codable, Equatable {
+    let bits: Int
+    let salt0: UInt64
+    let salt1: UInt64
 
-struct Collision: Equatable {
-    let stringA: String
-    let stringB: String
-    let hash: String
+    init(bits: Int, salt0: UInt64 = .random(in: .min ... .max), salt1: UInt64 = .random(in: .min ... .max)) {
+        self.bits = bits
+        self.salt0 = salt0
+        self.salt1 = salt1
+    }
+
+    func callAsFunction(_ x: Point) -> Point {
+        digest(x).masked(toBits: bits)
+    }
+
+    /// The full 256-bit SHA-256 of the input, without truncation.
+    func digest(_ x: Point) -> Point {
+        var message = (salt0.bigEndian, salt1.bigEndian, x.w0.bigEndian, x.w1.bigEndian, x.w2.bigEndian, x.w3.bigEndian)
+        let digest = withUnsafeBytes(of: &message) { SHA256.hash(data: $0) }
+        var out = Point()
+        digest.withUnsafeBytes { bytes in
+            withUnsafeMutableBytes(of: &out) { $0.copyMemory(from: bytes) }
+        }
+        return Point(w0: UInt64(bigEndian: out.w0), w1: UInt64(bigEndian: out.w1),
+                     w2: UInt64(bigEndian: out.w2), w3: UInt64(bigEndian: out.w3))
+    }
+
+    func randomPoint() -> Point {
+        Point(w0: .random(in: .min ... .max), w1: .random(in: .min ... .max),
+              w2: .random(in: .min ... .max), w3: .random(in: .min ... .max)).masked(toBits: bits)
+    }
+
+    var saltHex: String { String(format: "%016llx%016llx", salt0, salt1) }
 }
 
+struct Collision: Codable, Equatable {
+    let bits: Int
+    let salt: String
+    let inputA: String
+    let inputB: String
+    /// Full SHA-256 of each input; the first `bits` bits are equal.
+    let digestA: String
+    let digestB: String
 
-/// Not thread-safe: only use it from one thread or serial queue (see `HashSearch`).
-final class HashComputer {
-
-    static let stringLength = 20
-    /// Caps the table at ~130 MB so iOS never kills the app for memory.
-    /// Once full, new hashes are still checked against the stored ones but not added.
-    static let maxStoredHashes = 4_000_000
-
-    private static let characters = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".utf8)
-    private static let golden: UInt64 = 0x9E3779B97F4A7C15
-
-    private(set) var counter: UInt64 = 0
-    // Inputs are derived from (seed, index), so only the index needs storing, not the string.
-    private let seed = UInt64.random(in: .min ... .max)
-    // First 8 bytes of the digest -> index of the input that produced it.
-    private var seen: [UInt64: UInt64] = [:]
-
-    var storedCount: Int { seen.count }
-    var isTableFull: Bool { seen.count >= Self.maxStoredHashes }
-
-    func computeOne() -> Collision? {
-        if seen.isEmpty {
-            // Reserve up front so the table never rehashes (which briefly doubles memory).
-            seen.reserveCapacity(Self.maxStoredHashes)
-        }
-
-        let index = counter
-        counter += 1
-
-        let input = inputBytes(for: index)
-        let digest = SHA256.hash(data: input)
-        let key = digest.prefix(8).reduce(0) { $0 << 8 | UInt64($1) }
-
-        if let otherIndex = seen[key] {
-            let other = inputBytes(for: otherIndex)
-            // A prefix match is only a candidate; confirm the full digest and that the inputs differ.
-            if other != input && SHA256.hash(data: other) == digest {
-                print("--- HASH COLLISION FOUND ---")
-                return Collision(
-                    stringA: String(decoding: other, as: UTF8.self),
-                    stringB: String(decoding: input, as: UTF8.self),
-                    hash: digest.map { String(format: "%02x", $0) }.joined()
-                )
-            }
-            return nil
-        }
-
-        if !isTableFull {
-            seen[key] = index
-        }
-        return nil
-    }
-
-    /// Frees the table, e.g. on a memory warning. The counter keeps going.
-    func clearStoredHashes() {
-        seen = [:]
-    }
-
-    /// Deterministic random-looking alphanumeric string for `index` (SplitMix64).
-    private func inputBytes(for index: UInt64) -> [UInt8] {
-        var state = seed &+ index &* UInt64(Self.stringLength) &* Self.golden
-        return (0..<Self.stringLength).map { _ in
-            state &+= Self.golden
-            var z = state
-            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-            z ^= z >> 31
-            let pick = z.multipliedFullWidth(by: UInt64(Self.characters.count)).high
-            return Self.characters[Int(pick)]
-        }
+    init(step: HashStep, a: Point, b: Point) {
+        bits = step.bits
+        salt = step.saltHex
+        inputA = a.hex(bits: step.bits)
+        inputB = b.hex(bits: step.bits)
+        digestA = step.digest(a).hex()
+        digestB = step.digest(b).hex()
     }
 }
