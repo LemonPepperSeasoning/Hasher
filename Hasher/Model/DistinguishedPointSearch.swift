@@ -43,10 +43,10 @@ struct DistinguishedPointSearch: Codable {
         self.init(step: HashStep(bits: bits), walkers: walkers)
     }
 
-    init(step: HashStep, walkers: Int) {
+    init(step: HashStep, walkers: Int, dpBits: Int? = nil) {
         self.step = step
-        dpBits = Self.dpBits(bits: step.bits, walkers: walkers)
-        maxTrailLength = 20 << UInt64(dpBits)
+        self.dpBits = dpBits ?? Self.dpBits(bits: step.bits, walkers: walkers)
+        maxTrailLength = 20 << UInt64(self.dpBits)
         self.walkers = (0..<max(walkers, 1)).map { _ in
             let start = step.randomPoint()
             return Trail(start: start, current: start, length: 0)
@@ -81,12 +81,15 @@ struct DistinguishedPointSearch: Codable {
                 }
             }
         }
-        hashes += counts.reduce(0, +)
+        return absorb(found.joined(), hashes: counts.reduce(0, +))
+    }
 
-        for (point, record) in found.joined() {
+    /// Adds distinguished points found by any walker (CPU or GPU) and checks them for merges.
+    mutating func absorb<S: Sequence>(_ found: S, hashes: UInt64) -> Collision? where S.Element == (Point, Record) {
+        self.hashes += hashes
+        for (point, record) in found where collision == nil {
             if let pair = store(point, record) {
                 collision = Collision(step: step, a: pair.0, b: pair.1)
-                break
             }
         }
         return collision

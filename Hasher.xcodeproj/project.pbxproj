@@ -18,6 +18,8 @@
 		B0C5677828C505670008B8B4 /* HashSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677728C505670008B8B4 /* HashSearch.swift */; };
 		B0C5677D28C5D9220008B8B4 /* HashComputer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5677C28C5D9220008B8B4 /* HashComputer.swift */; };
 		9193DC9A213B40C0775F8649 /* DistinguishedPointSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */; };
+		4D6518DA56C81AAC587BB846 /* GPUWalker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843EA857B23F2107FE08A9CD /* GPUWalker.swift */; };
+		4119C7977AC165F634BA9EDE /* Walk.metal in Resources */ = {isa = PBXBuildFile; fileRef = D7394479F2A966DD13E7E9FD /* Walk.metal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +54,8 @@
 		B0C5677728C505670008B8B4 /* HashSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashSearch.swift; sourceTree = "<group>"; };
 		B0C5677C28C5D9220008B8B4 /* HashComputer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashComputer.swift; sourceTree = "<group>"; };
 		AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistinguishedPointSearch.swift; sourceTree = "<group>"; };
+		843EA857B23F2107FE08A9CD /* GPUWalker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUWalker.swift; sourceTree = "<group>"; };
+		D7394479F2A966DD13E7E9FD /* Walk.metal */ = {isa = PBXFileReference; lastKnownFileType = text; path = Walk.metal; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,6 +152,8 @@
 		B0C5677628C505580008B8B4 /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				D7394479F2A966DD13E7E9FD /* Walk.metal */,
+				843EA857B23F2107FE08A9CD /* GPUWalker.swift */,
 				AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */,
 				B0C5677728C505670008B8B4 /* HashSearch.swift */,
 				B0C5677C28C5D9220008B8B4 /* HashComputer.swift */,
@@ -259,6 +265,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4119C7977AC165F634BA9EDE /* Walk.metal in Resources */,
 				B0A181F528C4D07A00AE2D55 /* Preview Assets.xcassets in Resources */,
 				B0A181F228C4D07A00AE2D55 /* Assets.xcassets in Resources */,
 			);
@@ -285,6 +292,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4D6518DA56C81AAC587BB846 /* GPUWalker.swift in Sources */,
 				9193DC9A213B40C0775F8649 /* DistinguishedPointSearch.swift in Sources */,
 				B0C5677D28C5D9220008B8B4 /* HashComputer.swift in Sources */,
 				B0C5677828C505670008B8B4 /* HashSearch.swift in Sources */,

@@ -5,9 +5,9 @@
 
 import Foundation
 
-/// Runs a `DistinguishedPointSearch` (one walker per CPU core) from a private serial queue,
-/// publishes progress on the main thread,
-/// and saves the search so it survives pauses and relaunches.
+/// Runs a `DistinguishedPointSearch` from a private serial queue, with one walker per CPU core
+/// or thousands on the GPU, publishes progress on the main thread, and saves the search so it
+/// survives pauses and relaunches.
 final class HashSearch: ObservableObject {
 
     static let bitOptions = [24, 32, 40, 48, 56, 64, 80, 128, 256]
@@ -20,14 +20,18 @@ final class HashSearch: ObservableObject {
     @Published private(set) var walkers: Int
     @Published private(set) var storedPoints: Int
     @Published private(set) var collision: Collision?
+    @Published private(set) var usesGPU: Bool
+    let isGPUAvailable = GPUWalker.isSupported
 
     /// How long all walkers run between progress updates.
     private static let roundSeconds = 0.05
-    private static let storageKey = "HashSearch.dp.v1"
+    private static let storageKey = "HashSearch.dp.v2"
+    private static let usesGPUKey = "HashSearch.usesGPU"
 
     // `search` is only touched on `queue`.
     private let queue = DispatchQueue(label: "Hasher.HashSearch", qos: .userInitiated)
     private var search: DistinguishedPointSearch
+    private var gpu: GPUWalker?
     private let defaults: UserDefaults
     // Bumped synchronously on every start/stop, so queued or in-flight work from an earlier run is dropped.
     private let generationLock = NSLock()
@@ -38,13 +42,22 @@ final class HashSearch: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let saved = defaults.data(forKey: Self.storageKey).flatMap { try? PropertyListDecoder().decode(DistinguishedPointSearch.self, from: $0) }
-        let search = saved ?? DistinguishedPointSearch(bits: Self.defaultBits)
+        let search = saved ?? Self.makeSearch(bits: Self.defaultBits)
         self.search = search
+        usesGPU = isGPUAvailable && defaults.bool(forKey: Self.usesGPUKey)
         bits = search.step.bits
         count = search.hashes
         walkers = search.walkers.count
         storedPoints = search.points.count
         collision = search.collision
+    }
+
+    /// CPU and GPU walkers share one search, so its trail length must suit the GPU when there is one.
+    private static func makeSearch(bits: Int) -> DistinguishedPointSearch {
+        let step = HashStep(bits: bits)
+        let walkers = ProcessInfo.processInfo.activeProcessorCount
+        let dpBits = GPUWalker.isSupported ? GPUWalker.dpBits(bits: bits) : nil
+        return DistinguishedPointSearch(step: step, walkers: walkers, dpBits: dpBits)
     }
 
     /// Expected hashes for a birthday-style search over `bits` bits: √(πN/2).
@@ -64,9 +77,17 @@ final class HashSearch: ObservableObject {
         isComputing = true
         rateSample = nil
         let generation = bumpGeneration()
+        let onGPU = usesGPU
         queue.async { [weak self] in
-            self?.runBatch(generation: generation)
+            self?.runBatch(generation: generation, onGPU: onGPU)
         }
+    }
+
+    /// Switches between CPU and GPU walkers. Only allowed while paused.
+    func setUsesGPU(_ usesGPU: Bool) {
+        guard !isComputing, isGPUAvailable else { return }
+        self.usesGPU = usesGPU
+        defaults.set(usesGPU, forKey: Self.usesGPUKey)
     }
 
     func pause() {
@@ -87,7 +108,8 @@ final class HashSearch: ObservableObject {
         bumpGeneration()
         queue.async { [weak self] in
             guard let self else { return }
-            self.search = DistinguishedPointSearch(bits: bits)
+            self.search = Self.makeSearch(bits: bits)
+            self.gpu = nil
             self.persist()
         }
     }
@@ -120,10 +142,16 @@ final class HashSearch: ObservableObject {
         return generation == self.generation
     }
 
-    private func runBatch(generation: Int) {
+    private func runBatch(generation: Int, onGPU: Bool) {
         guard isCurrent(generation) else { return }
 
-        let found = search.run(seconds: Self.roundSeconds)
+        let found: Collision?
+        if onGPU, let gpu = gpuWalker() {
+            let result = gpu.run(seconds: Self.roundSeconds)
+            found = search.absorb(result.found, hashes: result.hashes)
+        } else {
+            found = search.run(seconds: Self.roundSeconds)
+        }
         let count = search.hashes
         let storedPoints = search.points.count
         if found != nil {
@@ -145,9 +173,17 @@ final class HashSearch: ObservableObject {
         if found == nil {
             // Re-enqueue instead of looping so pause/start get a turn on the queue between batches.
             queue.async { [weak self] in
-                self?.runBatch(generation: generation)
+                self?.runBatch(generation: generation, onGPU: onGPU)
             }
         }
+    }
+
+    /// The GPU walkers for the current search, created on first use.
+    private func gpuWalker() -> GPUWalker? {
+        if gpu?.step != search.step {
+            gpu = GPUWalker(step: search.step, dpBits: search.dpBits, maxTrailLength: search.maxTrailLength)
+        }
+        return gpu
     }
 
     private func updateRate(count: UInt64) {

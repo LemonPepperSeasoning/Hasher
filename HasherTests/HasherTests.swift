@@ -99,6 +99,59 @@ class HasherTests: XCTestCase {
         XCTAssertGreaterThan(all, one * 1.5)
     }
 
+    func testGPUStepMatchesCPUExactly() throws {
+        try XCTSkipUnless(GPUWalker.isSupported, "no Metal device")
+        for bits in [24, 40, 64, 100, 256] {
+            let step = HashStep(bits: bits)
+            let gpu = try XCTUnwrap(GPUWalker(step: step, dpBits: 10, maxTrailLength: 1_000))
+            let inputs = (0..<256).map { _ in step.randomPoint() }
+            XCTAssertEqual(gpu.hash(inputs), inputs.map { step($0) }, "\(bits) bits")
+        }
+    }
+
+    func testGPUWalkersReportValidTrailsAndFindCollision() throws {
+        try XCTSkipUnless(GPUWalker.isSupported, "no Metal device")
+        let bits = 48
+        var search = DistinguishedPointSearch(step: HashStep(bits: bits), walkers: 1, dpBits: GPUWalker.dpBits(bits: bits))
+        let gpu = try XCTUnwrap(GPUWalker(step: search.step, dpBits: search.dpBits, maxTrailLength: search.maxTrailLength))
+
+        var checked = 0
+        var collision: Collision?
+        let deadline = Date().addingTimeInterval(120)
+        while collision == nil && Date() < deadline {
+            let result = gpu.run(seconds: 0.1)
+            // Re-walk a sample of reported trails on the CPU: each must end at its point, at the first distinguished step.
+            for (point, record) in result.found.prefix(max(0, 20 - checked)) {
+                var x = record.start
+                for i in 1...record.length {
+                    x = search.step(x)
+                    XCTAssertEqual(search.isDistinguished(x), i == record.length)
+                }
+                XCTAssertEqual(x, point)
+                checked += 1
+            }
+            collision = search.absorb(result.found, hashes: result.hashes)
+        }
+        let found = try XCTUnwrap(collision, "no collision within 2 minutes")
+        XCTAssertGreaterThan(checked, 0)
+        XCTAssertNotEqual(found.inputA, found.inputB)
+        XCTAssertEqual(found.digestA.prefix(bits / 4), found.digestB.prefix(bits / 4))
+        XCTAssertNotEqual(found.digestA, found.digestB)
+        print("GPU found a \(bits)-bit collision after \(search.hashes) hashes")
+    }
+
+    func testGPUThroughput() throws {
+        try XCTSkipUnless(GPUWalker.isSupported, "no Metal device")
+        let step = HashStep(bits: 256)
+        let gpu = try XCTUnwrap(GPUWalker(step: step, dpBits: 28, maxTrailLength: .max))
+        _ = gpu.run(seconds: 0.3) // warm up and settle the dispatch size
+        let gpuRate = Double(gpu.run(seconds: 1).hashes)
+        var cpu = DistinguishedPointSearch(step: step, walkers: ProcessInfo.processInfo.activeProcessorCount)
+        _ = cpu.run(seconds: 1)
+        print("GPU: \(Int(gpuRate)) hashes/s, CPU: \(cpu.hashes) hashes/s (\(String(format: "%.1f", gpuRate / Double(cpu.hashes)))x)")
+        XCTAssertGreaterThan(gpuRate, 0)
+    }
+
     func testRapidStartPauseRunsOnlyOneLoopAndStops() {
         let search = HashSearch(defaults: defaults)
         for _ in 0..<500 {
