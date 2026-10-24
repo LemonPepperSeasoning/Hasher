@@ -33,12 +33,12 @@ class HasherTests: XCTestCase {
         XCTAssertEqual(step(x), step(x).masked(toBits: 40), "bits past 40 must be zero")
     }
 
-    func testRhoFindsRealCollisions() {
-        for bits in [24, 32] {
-            var search = RhoSearch(bits: bits)
+    func testDistinguishedPointsFindRealCollisions() {
+        for bits in [24, 32, 40] {
+            var search = DistinguishedPointSearch(bits: bits, walkers: 4)
             var collision: Collision?
             while collision == nil {
-                collision = search.run(maxHashes: 100_000)
+                collision = search.run(seconds: 0.05)
             }
             let found = collision!
             XCTAssertNotEqual(found.inputA, found.inputB)
@@ -47,25 +47,56 @@ class HasherTests: XCTestCase {
         }
     }
 
-    func testRhoResumesFromSavedState() throws {
-        let step = HashStep(bits: 32, salt0: 1, salt1: 2)
-        let start = Point(w0: 0x1234567800000000)
+    func testMergeFindsTheJunctionAndRejectsSharedPaths() {
+        var search = DistinguishedPointSearch(step: HashStep(bits: 16, salt0: 7, salt1: 8), walkers: 1)
+        let step = search.step
 
-        var straight = RhoSearch(step: step, start: start)
-        var expected: Collision?
-        while expected == nil {
-            expected = straight.run(maxHashes: 1_000_000)
-        }
+        // Two trails on the same path, one 5 steps behind the other: no collision.
+        let start = Point(w0: 0x1234 << 48)
+        var ahead = start
+        for _ in 0..<5 { ahead = step(ahead) }
+        XCTAssertNil(search.merge(.init(start: start, length: 50), .init(start: ahead, length: 45)))
 
-        // Same walk, but saved and restored every 777 hashes.
-        var resumed = RhoSearch(step: step, start: start)
-        var found: Collision?
-        while found == nil {
-            found = resumed.run(maxHashes: 777)
-            let data = try JSONEncoder().encode(resumed)
-            resumed = try JSONDecoder().decode(RhoSearch.self, from: data)
+        // Two different inputs with the same 16-bit hash are trails that merge after one step.
+        var seen: [Point: Point] = [:]
+        var pair: (Point, Point)?
+        for i in UInt64(0)..<65_536 where pair == nil {
+            let x = Point(w0: i << 48)
+            if let other = seen[step(x)] { pair = (other, x) }
+            seen[step(x)] = x
         }
-        XCTAssertEqual(found, expected)
+        let (a, b) = pair!
+        let merged = search.merge(.init(start: a, length: 1), .init(start: b, length: 1))
+        XCTAssertEqual(merged?.0, a)
+        XCTAssertEqual(merged?.1, b)
+    }
+
+    func testDistinguishedPointSearchResumesFromSavedState() throws {
+        var search = DistinguishedPointSearch(bits: 36, walkers: 4)
+        var collision: Collision?
+        var rounds = 0
+        while collision == nil {
+            collision = search.run(seconds: 0.02)
+            let data = try PropertyListEncoder().encode(search)
+            search = try PropertyListDecoder().decode(DistinguishedPointSearch.self, from: data)
+            rounds += 1
+        }
+        XCTAssertGreaterThan(rounds, 1)
+        XCTAssertEqual(collision!.digestA.prefix(9), collision!.digestB.prefix(9))
+        XCTAssertEqual(search.collision, collision)
+    }
+
+    func testWalkersScaleAcrossCores() throws {
+        let cores = ProcessInfo.processInfo.activeProcessorCount
+        try XCTSkipIf(cores < 2)
+        func hashesPerSecond(walkers: Int) -> Double {
+            var search = DistinguishedPointSearch(bits: 256, walkers: walkers)
+            _ = search.run(seconds: 1)
+            return Double(search.hashes)
+        }
+        let one = hashesPerSecond(walkers: 1), all = hashesPerSecond(walkers: cores)
+        print("1 walker: \(Int(one)) hashes/s, \(cores) walkers: \(Int(all)) hashes/s (\(String(format: "%.1f", all / one))x)")
+        XCTAssertGreaterThan(all, one * 1.5)
     }
 
     func testRapidStartPauseRunsOnlyOneLoopAndStops() {
