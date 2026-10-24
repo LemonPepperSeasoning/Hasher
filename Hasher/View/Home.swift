@@ -41,6 +41,12 @@ struct Home: View {
                 Spacer()
             }
             
+            if search.isGPUAvailable {
+                Toggle("Use GPU", isOn: Binding(get: { search.usesGPU }, set: { search.setUsesGPU($0) }))
+                    .font(.system(size: 16, weight: .regular, design: .default))
+                    .disabled(search.isComputing)
+            }
+            
             Text(expectedWorkText)
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundColor(.secondary)
@@ -128,7 +134,8 @@ struct Home: View {
     
     private var statusText: String {
         let rate = search.hashesPerSecond > 0 ? "\(Self.abbreviated(search.hashesPerSecond)) hashes/s · " : ""
-        return rate + "\(search.walkers) walkers · \(search.storedPoints) points stored"
+        let walkers = search.usesGPU ? "GPU · \(GPUWalker.threadCount) walkers" : "CPU · \(search.walkers) walkers"
+        return rate + walkers + " · \(search.storedPoints) points stored"
     }
     
     private func digestText(_ label: String, _ hex: String, bits: Int) -> Text {
