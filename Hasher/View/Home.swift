@@ -10,14 +10,8 @@ import SwiftUI
 
 struct Home: View {
     
-    var hashComputer = HashComputer()
+    @StateObject private var search = HashSearch()
     
-    
-    @State var count: Int = 0
-    @State var isComputing: Bool = false
-    @State var collision: [String]? = nil
-    @State var collisionFound: Bool = false
-    @State private var workItem: DispatchWorkItem?
     var body: some View {
         
         VStack() {
@@ -39,34 +33,46 @@ struct Home: View {
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                 
-                Text(String(count))
+                Text(String(search.count))
                     .font(.system(size: 64, weight: .light, design: .default))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.3)
                     .padding(10)
+                
+                if search.isTableFull {
+                    Text("Hash table full: new hashes are still checked, but no longer stored.")
+                        .font(.system(size: 14, weight: .regular, design: .default))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
             .cornerRadius(10)
         
         
             Spacer()
             
-            if collisionFound {
+            if let collision = search.collision {
                 VStack{
                     Text("Collision found !")
                         .font(.system(size: 18, weight: .heavy, design: .default))
                     VStack{
-                        Text("String A: \(collision![0])")
+                        Text("String A: \(collision.stringA)")
                             .font(.system(size: 16, weight: .heavy, design: .default))
-                        Text("String B: \(collision![1])")
+                        Text("String B: \(collision.stringB)")
                             .font(.system(size: 16, weight: .heavy, design: .default))
+                        Text("SHA-256: \(collision.hash)")
+                            .font(.system(size: 12, weight: .regular, design: .monospaced))
                     }
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .center)
                 .padding(10)
                 .background(.red)
                 .cornerRadius(5)
+                .textSelection(.enabled)
             }
             
-            Button(action: startpausseButtonOnClick){
-                Text(isComputing ? "Pause" : "Start")
+            Button(action: search.toggle){
+                Text(search.isComputing ? "Pause" : "Start")
                     .frame(width: 100, height: 30, alignment: .center)
             }
             .buttonStyle(.bordered)
@@ -76,45 +82,6 @@ struct Home: View {
         .padding()
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
     }
-    
-    func startpausseButtonOnClick(){
-        isComputing = !isComputing
-        if (isComputing){
-            print("Starting async function")
-            startCompute()
-        }else{
-            print("Pausing async function")
-            pauseCompute()
-        }
-    }
-    
-    func startCompute() {
-        self.workItem = DispatchWorkItem {
-            while ( (self.workItem?.isCancelled) != true ) {
-                collision = hashComputer.computeOne()
-                if collision != nil{
-                    collisionFound = true
-                    break
-                }
-                DispatchQueue.main.async { count += 1}
-            }
-        }
-        
-        //Start the work item
-        if(workItem != nil) {
-            DispatchQueue.global().async(execute: workItem!)
-        }
-    }
-    
-    func pauseCompute(){
-        collision = nil
-        collisionFound = false
-        DispatchQueue.global().asyncAfter(deadline: .now()) {
-            self.workItem?.cancel()
-        }
-    }
-    
-
     
 }
 

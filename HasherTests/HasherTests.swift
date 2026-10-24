@@ -10,27 +10,78 @@ import XCTest
 
 class HasherTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-    }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
+    func testComputeOneStoresHashes() {
+        let computer = HashComputer()
+        for _ in 0..<10_000 {
+            XCTAssertNil(computer.computeOne())
         }
+        XCTAssertEqual(computer.counter, 10_000)
+        XCTAssertEqual(computer.storedCount, 10_000)
+    }
+
+    func testTableIsCappedAndMemoryStaysBounded() {
+        let computer = HashComputer()
+        let before = memoryFootprint()
+        for _ in 0..<(HashComputer.maxStoredHashes + 50_000) {
+            _ = computer.computeOne()
+        }
+        XCTAssertTrue(computer.isTableFull)
+        XCTAssertEqual(computer.storedCount, HashComputer.maxStoredHashes)
+
+        let grownMB = Double(Int64(memoryFootprint()) - Int64(before)) / 1_048_576
+        print("Table memory: \(grownMB) MB")
+        XCTAssertLessThan(grownMB, 300)
+
+        computer.clearStoredHashes()
+        XCTAssertEqual(computer.storedCount, 0)
+    }
+
+    func testRapidStartPauseRunsOnlyOneLoopAndStops() {
+        let search = HashSearch()
+        for _ in 0..<500 {
+            search.toggle()
+        }
+        search.start()
+        waitForMainQueue(seconds: 1)
+        XCTAssertTrue(search.isComputing)
+        XCTAssertGreaterThan(search.count, 0)
+
+        search.pause()
+        waitForMainQueue(seconds: 0.5)
+        let countAfterPause = search.count
+        waitForMainQueue(seconds: 0.5)
+        XCTAssertFalse(search.isComputing)
+        XCTAssertEqual(search.count, countAfterPause, "a loop kept running after pause")
+    }
+
+    func testSearchIsReleased() {
+        weak var weakSearch: HashSearch?
+        do {
+            let search = HashSearch()
+            weakSearch = search
+            search.start()
+            waitForMainQueue(seconds: 0.2)
+            search.pause()
+        }
+        waitForMainQueue(seconds: 0.5)
+        XCTAssertNil(weakSearch, "HashSearch leaked")
+    }
+
+    private func waitForMainQueue(seconds: TimeInterval) {
+        let done = expectation(description: "wait")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { done.fulfill() }
+        wait(for: [done], timeout: seconds + 5)
+    }
+
+    private func memoryFootprint() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? info.phys_footprint : 0
     }
 
 }
