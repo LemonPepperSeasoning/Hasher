@@ -20,6 +20,9 @@
 		9193DC9A213B40C0775F8649 /* DistinguishedPointSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */; };
 		4D6518DA56C81AAC587BB846 /* GPUWalker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843EA857B23F2107FE08A9CD /* GPUWalker.swift */; };
 		4119C7977AC165F634BA9EDE /* Walk.metal in Resources */ = {isa = PBXBuildFile; fileRef = D7394479F2A966DD13E7E9FD /* Walk.metal */; };
+		149D439536B3216FDAEEB975 /* Style.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C123B1612DD272D1371C17 /* Style.swift */; };
+		8F219E9CB0EB53F16947CCF2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729FAE923D5A4FD12AABFE22 /* SettingsView.swift */; };
+		DBA41ECCCC3FC1626E53A130 /* CollisionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EC84D8DBC74254770F58904 /* CollisionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +59,9 @@
 		AAD08C862065DDC06BE5121D /* DistinguishedPointSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistinguishedPointSearch.swift; sourceTree = "<group>"; };
 		843EA857B23F2107FE08A9CD /* GPUWalker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUWalker.swift; sourceTree = "<group>"; };
 		D7394479F2A966DD13E7E9FD /* Walk.metal */ = {isa = PBXFileReference; lastKnownFileType = text; path = Walk.metal; sourceTree = "<group>"; };
+		A4C123B1612DD272D1371C17 /* Style.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Style.swift; sourceTree = "<group>"; };
+		729FAE923D5A4FD12AABFE22 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		5EC84D8DBC74254770F58904 /* CollisionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollisionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -145,6 +151,9 @@
 			isa = PBXGroup;
 			children = (
 				B0C5677428C505260008B8B4 /* Home.swift */,
+				5EC84D8DBC74254770F58904 /* CollisionView.swift */,
+				729FAE923D5A4FD12AABFE22 /* SettingsView.swift */,
+				A4C123B1612DD272D1371C17 /* Style.swift */,
 			);
 			path = View;
 			sourceTree = "<group>";
@@ -298,6 +307,9 @@
 				B0C5677828C505670008B8B4 /* HashSearch.swift in Sources */,
 				B0A181F028C4D06F00AE2D55 /* ContentView.swift in Sources */,
 				B0C5677528C505260008B8B4 /* Home.swift in Sources */,
+				DBA41ECCCC3FC1626E53A130 /* CollisionView.swift in Sources */,
+				8F219E9CB0EB53F16947CCF2 /* SettingsView.swift in Sources */,
+				149D439536B3216FDAEEB975 /* Style.swift in Sources */,
 				B0A181EE28C4D06F00AE2D55 /* HasherApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

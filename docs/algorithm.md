@@ -22,7 +22,7 @@ f(x) = first n bits of SHA-256(salt0 ‖ salt1 ‖ x)
 
 - `x` is a `Point`: 256 bits stored as four `UInt64` words, `w0` (highest bits) to `w3`. Only the first `n` bits are ever non-zero.
 - The message is always 48 bytes: two 8-byte salts and the 32-byte `x`, all big-endian.
-- The **salt** is random per search. It makes each search find a different collision, and it means a found pair is a genuine collision of real SHA-256 inputs. The app displays the full digests so you can check the first `n` bits match.
+- The **salt** comes from the search's seed (section 7). A new seed finds a different collision, and the salt means a found pair is a genuine collision of real SHA-256 inputs. The app displays the full digests so you can check the first `n` bits match.
 
 Because `f` maps n-bit values to n-bit values, we can feed its output back in as its next input. That is what makes the algorithms below possible.
 
@@ -34,13 +34,13 @@ By the **birthday bound**, among random n-bit values you expect the first repeat
 √(π/2 · 2ⁿ)  ≈  1.25 · 2^(n/2)  hashes
 ```
 
-| Bits | Expected hashes | At ~540M hashes/s (Mac GPU) |
+| Bits | Expected hashes | At ~415M hashes/s (Mac GPU) |
 |---|---|---|
 | 32 | 82 thousand | instant |
 | 48 | 21 million | < 0.1 s |
-| 64 | 5.4 billion | ~10 s |
-| 80 | 1.4 trillion | ~45 min |
-| 128 | 2.3 × 10¹⁹ | ~1,400 years |
+| 64 | 5.4 billion | ~13 s |
+| 80 | 1.4 trillion | ~55 min |
+| 128 | 2.3 × 10¹⁹ | ~1,800 years |
 | 256 | 4.3 × 10³⁸ | ~10²² years |
 
 The naive alternative, hashing two fresh random inputs and comparing them, needs about 2ⁿ tries instead of 2^(n/2). For 64 bits that is 4 billion times more work. The birthday bound is the whole reason this is feasible at all.
@@ -126,14 +126,14 @@ Example: a 64-bit search on the GPU uses `d = 13`. About 5.4 billion hashes repo
 
 ## 4. CPU walkers
 
-`DistinguishedPointSearch.run(seconds:)` runs one walker per CPU core:
+`DistinguishedPointSearch.run(seconds:)` runs 64 walkers in **rounds** of 4,096 steps each:
 
-- The number of walkers comes from `ProcessInfo.processInfo.activeProcessorCount`, read at runtime. For example, an iPhone 15 Pro has 6 cores; a Mac has more.
-- `DispatchQueue.concurrentPerform` runs one iteration per walker on separate threads and waits until all of them finish.
-- Each walker writes only to its own slot in three arrays (trails, found points, hash counts), through `UnsafeMutableBufferPointer`. No locks are needed while walking.
-- After the round, `absorb` adds the found points to the dictionary on one thread and checks each one for a merge.
+- There are many more walkers than cores. `DispatchQueue.concurrentPerform` hands each free core the next walker, so fast cores do more of a round instead of waiting for slow ones. That matters on iPhones, which mix performance and efficiency cores. A fixed count also means a seed gives the same search on every device.
+- Each walker copies its trail out of the shared array, walks it, and writes it back once at the end of the round. Walkers only receive plain values (the step function, `dpBits`, `maxTrailLength`), never the search itself. Both matter: writing neighbouring trails every step shares cache lines between cores, and reaching into the search from every thread contends on reference counts. Together they cost more than half the throughput.
+- Each walker writes only to its own slot in the trails and found-points arrays, through `UnsafeMutableBufferPointer`. No locks are needed while walking.
+- After each round, `absorb` adds the found points to the dictionary on one thread, in walker order, and checks each one for a merge.
 
-Hashing uses CryptoKit's `SHA256` (hardware-accelerated). On a Mac, all cores ran about 5.8× faster than one core in a release build.
+Hashing uses CryptoKit's `SHA256` (hardware-accelerated). In the simulator on an 8-core Mac, 64 walkers ran about 5× faster than one in a debug build, matching what bare parallel hashing reaches.
 
 ## 5. GPU walkers with Metal
 
@@ -151,7 +151,7 @@ CryptoKit does not run on the GPU, so `Walk.metal` contains its own SHA-256. It 
 
 | Metal API | What it is | Used for |
 |---|---|---|
-| `MTLCreateSystemDefaultDevice()` → `MTLDevice` | The GPU | Everything else is made from it; `nil` means no GPU, so the "Use GPU" toggle is hidden |
+| `MTLCreateSystemDefaultDevice()` → `MTLDevice` | The GPU | Everything else is made from it; `nil` means no GPU, so Settings hides the CPU/GPU choice |
 | `device.makeLibrary(source:options:)` → `MTLLibrary` | Compiled GPU code | Compiles `Walk.metal` at runtime (see below) |
 | `library.makeFunction(name:)` → `MTLFunction` | One kernel | `walk` and `hashPoints` |
 | `device.makeComputePipelineState(function:)` → `MTLComputePipelineState` | A kernel ready to run | One per kernel |
@@ -167,7 +167,6 @@ Each round of work (`GPUWalker.run`) then uses:
 | `encoder.setComputePipelineState`, `encoder.setBuffer(_:offset:index:)` | Picks the `walk` kernel and binds buffers to `[[buffer(0…3)]]` in the kernel |
 | `encoder.dispatchThreadgroups(_:threadsPerThreadgroup:)` | Launches 32,768 threads in groups of 256 |
 | `commands.commit()`, `commands.waitUntilCompleted()` | Sends the work and waits for it (on the search's background queue, never the main thread) |
-| `commands.gpuStartTime`, `commands.gpuEndTime` | Measures how long the GPU took, to size the next dispatch |
 
 **Shared memory.** iPhones and Apple Silicon Macs have *unified memory*: the CPU and GPU use the same RAM. With `.storageModeShared`, the CPU reads and writes a buffer through `buffer.contents()` directly, with no copies to or from the GPU.
 
@@ -207,8 +206,8 @@ save my trail back to trails[tid]
 ```
 
 - **The atomic counter** is the only point where threads interact. `atomic_fetch_add` hands each thread a different slot, so no two threads write the same record.
-- **Random restarts** use splitmix64, a small fast random generator, seeded per walker from the CPU. GPU code has no system random-number API.
-- **If records overflow** (more than 65,536 points in one dispatch), extra points are dropped. That loses a little work but never gives a wrong answer. The CPU then halves the next dispatch.
+- **Random restarts** use splitmix64, a small fast random generator. Each thread's generator is seeded from the search's seed by the CPU, and `SplitMix64` in Swift is the same generator, so CPU and GPU walkers draw starts the same way. GPU code has no system random-number API.
+- **If records overflow** (more than 65,536 points in one dispatch), extra points are dropped. That loses a little work but never gives a wrong answer. At 512 steps per dispatch and at least 10 dp bits, a dispatch reports about 16,000 points on average, so this does not happen in practice.
 
 ### Each round on the CPU side
 
@@ -219,16 +218,16 @@ sequenceDiagram
     Q->>Q: reset recordCount, set steps
     Q->>G: commit walk kernel (32,768 threads × steps)
     G-->>Q: waitUntilCompleted
-    Q->>Q: read records → absorb() into dictionary
+    Q->>Q: read records, sort them → absorb() into dictionary
     Q->>Q: merge() any repeated point on the CPU
-    Q->>Q: resize steps so the next dispatch takes ~20 ms
 ```
 
-- **Adaptive dispatch size.** `steps` is rescaled after each dispatch so it takes about 20 ms of GPU time, capped at 4,096 steps. Short dispatches keep the UI smooth and stop iOS from treating the app as hogging the GPU.
+- **Fixed dispatch size.** Every dispatch is 512 steps: 16.8 million hashes, about 40 ms on a Mac GPU. Short dispatches keep the UI smooth and stop iOS from treating the app as hogging the GPU. The size is fixed rather than tuned to the GPU's speed, so where dispatches start and end depends only on the seed.
+- **Sorted records.** Threads reach the atomic counter in whatever order the GPU schedules them. The CPU sorts each dispatch's records by point and start before absorbing them, so the search sees the same points in the same order every run.
 - **The CPU does the bookkeeping.** The dictionary and `merge` stay on the CPU. They run once per found point, which is rare (one per 2^d hashes), so the CPU easily keeps up.
-- **Pausing** loses only the trails in flight, a fraction of a second of work. All stored distinguished points are kept.
+- **Pausing** loses nothing. `trailState` copies every thread's trail and generator out of GPU memory when the search is saved, and a new `GPUWalker` resumes from it.
 
-In the simulator, which runs on the Mac's GPU, this ran at about 537 million hashes per second, roughly 23× the Mac's CPU. A 48-bit collision took under a second. iPhone GPUs are smaller, so expect lower numbers there.
+In the simulator, which runs on the Mac's GPU, this ran at about 415 million hashes per second, roughly 40× the Mac's CPU. A 48-bit collision took under a second. iPhone GPUs are smaller, so expect lower numbers there.
 
 ## 6. Running it in the app (`HashSearch.swift`)
 
@@ -237,10 +236,28 @@ In the simulator, which runs on the Mac's GPU, this ran at about 537 million has
 - **One background queue.** All search work runs on a private serial `DispatchQueue`, never on the main thread. Each batch runs for about 50 ms, then queues the next batch rather than looping. That way a pause or a new search gets a turn on the queue between batches.
 - **Generation counter.** Every start, pause and new search increments a counter, protected by an `NSLock`. A batch only continues, and only updates the UI, if its generation is still the current one. This makes rapid start/pause safe: batches left over from an earlier run quietly stop.
 - **Main-thread updates.** Progress (hash count, stored points, rate) is published on the main thread, as SwiftUI requires.
-- **CPU and GPU share one search.** Both feed the same `DistinguishedPointSearch`, so you can switch between them while paused. When a GPU exists, the search uses the GPU's `dpBits` for CPU walkers too.
-- **Saving.** On pause, when a collision is found, and when the app leaves the foreground, the search (salt, walkers, stored points, counts) is encoded with `Codable` as a binary property list into `UserDefaults`. On launch it is restored, so a long search continues where it left off.
+- **Settings start a new search.** Bits, CPU or GPU, and the seed are fixed for a search. `configure` pauses and starts a new search if any of them changed. A GPU search uses the GPU's larger `dpBits`.
+- **Saving.** On pause, when a collision is found, and when the app leaves the foreground, the search (seed, walkers, stored points, counts, time spent, and the GPU trails) is encoded with `Codable` as a binary property list into `UserDefaults`. On launch it is restored, so a long search continues where it left off.
 
-## 7. Tests (`HasherTests.swift`)
+## 7. Seeds: rerunning the same search
+
+Every search has a seed: the text typed in Settings, or a random one like `silver-otter-4821`. The collision screen shows it so it can be copied. SHA-256 of the seed text gives four 64-bit words:
+
+| Word | Used for |
+|---|---|
+| 0, 1 | `salt0`, `salt1` |
+| 2 | Seeds the CPU walkers' generators, one drawn per walker |
+| 3 | Seeds the GPU threads' generators, one drawn per thread |
+
+Randomness alone is not enough to repeat a search: the collision found depends on the order distinguished points reach the dictionary. Three rules make that order depend only on the seed:
+
+1. CPU walkers run in rounds of a fixed number of steps, and their points are absorbed in walker order.
+2. GPU dispatches have a fixed number of steps, and each dispatch's records are sorted.
+3. A pause or relaunch resumes exactly: the CPU trails, and the GPU trails via `trailState`, are saved with the search.
+
+So the same seed, bit length and compute choice find the same collision after the same number of hashes, however fast the device is and however often it pauses. CPU searches always use 64 walkers and the GPU always uses 32,768 threads, so this holds across devices too.
+
+## 8. Tests (`HasherTests.swift`)
 
 The tests check that:
 
@@ -248,7 +265,9 @@ The tests check that:
 - Real collisions are found at 24, 32 and 40 bits on the CPU, and at 48 bits on the GPU.
 - `merge` finds the junction and rejects false alarms.
 - Trails reported by the GPU are valid: replaying one on the CPU reaches its point at exactly its first distinguished step.
-- A search saved and restored mid-way still finds a collision.
+- A search saved and restored every round finds the same collision, after the same number of hashes, as one uninterrupted run.
+- The same seed finds the same collision on the CPU whatever the batch length, and on the GPU when the walker is recreated from `trailState` after every batch. A different seed finds a different one.
+- A typed seed reruns the same search in `HashSearch`, and an empty seed picks a random one.
 - Rapid start/pause leaves no work running, and `HashSearch` is released from memory (no leak).
 
 They pass with Thread Sanitizer enabled, which detects data races between threads.

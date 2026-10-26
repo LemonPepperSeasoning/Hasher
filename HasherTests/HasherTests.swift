@@ -48,7 +48,7 @@ class HasherTests: XCTestCase {
     }
 
     func testMergeFindsTheJunctionAndRejectsSharedPaths() {
-        var search = DistinguishedPointSearch(step: HashStep(bits: 16, salt0: 7, salt1: 8), walkers: 1)
+        var search = DistinguishedPointSearch(bits: 16, seed: Seed("merge"), walkers: 1)
         let step = search.step
 
         // Two trails on the same path, one 5 steps behind the other: no collision.
@@ -72,7 +72,7 @@ class HasherTests: XCTestCase {
     }
 
     func testDistinguishedPointSearchResumesFromSavedState() throws {
-        var search = DistinguishedPointSearch(bits: 36, walkers: 4)
+        var search = DistinguishedPointSearch(bits: 36, seed: Seed("resume"), walkers: 4)
         var collision: Collision?
         var rounds = 0
         while collision == nil {
@@ -84,6 +84,28 @@ class HasherTests: XCTestCase {
         XCTAssertGreaterThan(rounds, 1)
         XCTAssertEqual(collision!.digestA.prefix(9), collision!.digestB.prefix(9))
         XCTAssertEqual(search.collision, collision)
+
+        // Saving and resuming every round finds what one uninterrupted run finds.
+        var uninterrupted = DistinguishedPointSearch(bits: 36, seed: Seed("resume"), walkers: 4)
+        XCTAssertEqual(uninterrupted.run(seconds: 600), collision)
+        XCTAssertEqual(uninterrupted.hashes, search.hashes)
+    }
+
+    func testSameSeedFindsSameCollision() {
+        func collision(seed: String, roundSeconds: Double) -> (Collision, UInt64) {
+            var search = DistinguishedPointSearch(bits: 36, seed: Seed(seed), walkers: 4)
+            while search.collision == nil {
+                _ = search.run(seconds: roundSeconds)
+            }
+            return (search.collision!, search.hashes)
+        }
+        let first = collision(seed: "silver-otter-4821", roundSeconds: 0.001)
+        let again = collision(seed: "silver-otter-4821", roundSeconds: 0.05)
+        let other = collision(seed: "amber-heron-1234", roundSeconds: 0.001)
+        XCTAssertEqual(first.0, again.0)
+        XCTAssertEqual(first.1, again.1)
+        XCTAssertNotEqual(first.0, other.0)
+        XCTAssertEqual(first.0.salt, HashStep(bits: 36, seed: Seed("silver-otter-4821")).saltHex)
     }
 
     func testWalkersScaleAcrossCores() throws {
@@ -94,8 +116,8 @@ class HasherTests: XCTestCase {
             _ = search.run(seconds: 1)
             return Double(search.hashes)
         }
-        let one = hashesPerSecond(walkers: 1), all = hashesPerSecond(walkers: cores)
-        print("1 walker: \(Int(one)) hashes/s, \(cores) walkers: \(Int(all)) hashes/s (\(String(format: "%.1f", all / one))x)")
+        let one = hashesPerSecond(walkers: 1), all = hashesPerSecond(walkers: DistinguishedPointSearch.defaultWalkers)
+        print("1 walker: \(Int(one)) hashes/s, \(DistinguishedPointSearch.defaultWalkers) walkers on \(cores) cores: \(Int(all)) hashes/s (\(String(format: "%.1f", all / one))x)")
         XCTAssertGreaterThan(all, one * 1.5)
     }
 
@@ -112,7 +134,7 @@ class HasherTests: XCTestCase {
     func testGPUWalkersReportValidTrailsAndFindCollision() throws {
         try XCTSkipUnless(GPUWalker.isSupported, "no Metal device")
         let bits = 48
-        var search = DistinguishedPointSearch(step: HashStep(bits: bits), walkers: 1, dpBits: GPUWalker.dpBits(bits: bits))
+        var search = DistinguishedPointSearch(bits: bits, walkers: 1, dpBits: GPUWalker.dpBits(bits: bits))
         let gpu = try XCTUnwrap(GPUWalker(step: search.step, dpBits: search.dpBits, maxTrailLength: search.maxTrailLength))
 
         var checked = 0
@@ -140,13 +162,39 @@ class HasherTests: XCTestCase {
         print("GPU found a \(bits)-bit collision after \(search.hashes) hashes")
     }
 
+    func testGPUSameSeedFindsSameCollisionAcrossRestarts() throws {
+        try XCTSkipUnless(GPUWalker.isSupported, "no Metal device")
+        let bits = 48
+        func run(restartEveryBatch: Bool, seconds: Double) throws -> DistinguishedPointSearch {
+            var search = DistinguishedPointSearch(bits: bits, seed: Seed("gpu-repeat"), walkers: 1, dpBits: GPUWalker.dpBits(bits: bits))
+            var gpu: GPUWalker?
+            while search.collision == nil {
+                if gpu == nil {
+                    gpu = try XCTUnwrap(GPUWalker(step: search.step, dpBits: search.dpBits, maxTrailLength: search.maxTrailLength,
+                                                  seed: search.gpuSeed, trails: search.gpuTrails))
+                }
+                let result = gpu!.run(seconds: seconds)
+                _ = search.absorb(result.found, hashes: result.hashes)
+                if restartEveryBatch {
+                    search.gpuTrails = gpu!.trailState
+                    gpu = nil
+                }
+            }
+            return search
+        }
+        let straight = try run(restartEveryBatch: false, seconds: 0.2)
+        let restarted = try run(restartEveryBatch: true, seconds: 0)
+        XCTAssertEqual(straight.collision, restarted.collision)
+        XCTAssertNotNil(straight.collision)
+    }
+
     func testGPUThroughput() throws {
         try XCTSkipUnless(GPUWalker.isSupported, "no Metal device")
-        let step = HashStep(bits: 256)
-        let gpu = try XCTUnwrap(GPUWalker(step: step, dpBits: 28, maxTrailLength: .max))
-        _ = gpu.run(seconds: 0.3) // warm up and settle the dispatch size
-        let gpuRate = Double(gpu.run(seconds: 1).hashes)
-        var cpu = DistinguishedPointSearch(step: step, walkers: ProcessInfo.processInfo.activeProcessorCount)
+        var cpu = DistinguishedPointSearch(bits: 256)
+        let gpu = try XCTUnwrap(GPUWalker(step: cpu.step, dpBits: 28, maxTrailLength: .max))
+        _ = gpu.run(seconds: 0.3) // warm up
+        let began = Date()
+        let gpuRate = Double(gpu.run(seconds: 1).hashes) / Date().timeIntervalSince(began)
         _ = cpu.run(seconds: 1)
         print("GPU: \(Int(gpuRate)) hashes/s, CPU: \(cpu.hashes) hashes/s (\(String(format: "%.1f", gpuRate / Double(cpu.hashes)))x)")
         XCTAssertGreaterThan(gpuRate, 0)
@@ -172,7 +220,7 @@ class HasherTests: XCTestCase {
 
     func testSearchFindsCollisionAndRestoresIt() {
         let search = HashSearch(defaults: defaults)
-        search.newSearch(bits: 32)
+        search.configure(bits: 32, usesGPU: false, seedText: "")
         search.start()
         let deadline = Date().addingTimeInterval(60)
         while search.collision == nil && Date() < deadline {
@@ -185,6 +233,30 @@ class HasherTests: XCTestCase {
         let relaunched = HashSearch(defaults: defaults)
         XCTAssertEqual(relaunched.bits, 32)
         XCTAssertEqual(relaunched.collision, search.collision)
+        XCTAssertEqual(relaunched.seed, search.seed)
+    }
+
+    func testTypedSeedRerunsTheSameSearch() {
+        let search = HashSearch(defaults: defaults)
+        search.configure(bits: 32, usesGPU: false, seedText: "rerun-me")
+        XCTAssertEqual(search.seed, "rerun-me")
+        func findCollision() -> Collision? {
+            search.start()
+            let deadline = Date().addingTimeInterval(60)
+            while search.collision == nil && Date() < deadline {
+                waitForMainQueue(seconds: 0.1)
+            }
+            return search.collision
+        }
+        let first = findCollision()
+        search.newSearch()
+        XCTAssertNil(search.collision)
+        XCTAssertEqual(search.seed, "rerun-me")
+        XCTAssertNotNil(first)
+        XCTAssertEqual(findCollision(), first)
+
+        search.configure(bits: 32, usesGPU: false, seedText: "")
+        XCTAssertNotEqual(search.seed, "rerun-me", "an empty seed picks a random one")
     }
 
     func testSearchIsReleased() {

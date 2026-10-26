@@ -9,7 +9,7 @@ import Foundation
 import CryptoKit
 
 /// A value in the search space: the first `bits` bits of a 256-bit number (big-endian words), the rest zero.
-struct Point: Hashable, Codable {
+struct Point: Hashable, Codable, Comparable {
     var w0: UInt64 = 0
     var w1: UInt64 = 0
     var w2: UInt64 = 0
@@ -28,6 +28,50 @@ struct Point: Hashable, Codable {
     func hex(bits: Int = 256) -> String {
         String(words.map { String(format: "%016llx", $0) }.joined().prefix((bits + 3) / 4))
     }
+
+    static func < (a: Point, b: Point) -> Bool {
+        (a.w0, a.w1, a.w2, a.w3) < (b.w0, b.w1, b.w2, b.w3)
+    }
+}
+
+/// SplitMix64, the same generator Walk.metal uses: fast, and fully determined by its state.
+struct SplitMix64: RandomNumberGenerator, Codable, Equatable {
+    var state: UInt64
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
+    }
+}
+
+/// What makes a search repeatable: the salt and every walker's starting points are derived from it.
+struct Seed: Codable, Equatable {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    /// Word `i` (0...3) of SHA-256(text).
+    func word(_ i: Int) -> UInt64 {
+        let bytes = Array(SHA256.hash(data: Data(text.utf8)))
+        return bytes[8 * i ..< 8 * i + 8].reduce(0) { $0 << 8 | UInt64($1) }
+    }
+
+    private static let adjectives = ["amber", "brisk", "calm", "coral", "dusty", "eager", "faint", "gentle",
+                                     "hollow", "ivory", "jolly", "lunar", "misty", "noble", "quiet", "rapid",
+                                     "silver", "steady", "tidal", "velvet"]
+    private static let nouns = ["badger", "comet", "delta", "ember", "falcon", "finch", "harbor", "heron",
+                                "koi", "lynx", "maple", "meadow", "moth", "orbit", "otter", "pebble",
+                                "quartz", "raven", "willow", "zephyr"]
+
+    /// An easy-to-read seed like "silver-otter-4821".
+    static func random() -> Seed {
+        Seed("\(adjectives.randomElement()!)-\(nouns.randomElement()!)-\(Int.random(in: 1000...9999))")
+    }
 }
 
 /// The function the search walks: x -> first `bits` bits of SHA-256(salt || x).
@@ -43,6 +87,10 @@ struct HashStep: Codable, Equatable {
         self.bits = bits
         self.salt0 = salt0
         self.salt1 = salt1
+    }
+
+    init(bits: Int, seed: Seed) {
+        self.init(bits: bits, salt0: seed.word(0), salt1: seed.word(1))
     }
 
     func callAsFunction(_ x: Point) -> Point {
@@ -62,8 +110,13 @@ struct HashStep: Codable, Equatable {
     }
 
     func randomPoint() -> Point {
-        Point(w0: .random(in: .min ... .max), w1: .random(in: .min ... .max),
-              w2: .random(in: .min ... .max), w3: .random(in: .min ... .max)).masked(toBits: bits)
+        var rng = SystemRandomNumberGenerator()
+        return randomPoint(using: &rng)
+    }
+
+    /// Draws words in the same order as Walk.metal's `restartTrail`.
+    func randomPoint<R: RandomNumberGenerator>(using rng: inout R) -> Point {
+        Point(w0: rng.next(), w1: rng.next(), w2: rng.next(), w3: rng.next()).masked(toBits: bits)
     }
 
     var saltHex: String { String(format: "%016llx%016llx", salt0, salt1) }
