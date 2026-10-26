@@ -5,28 +5,33 @@
 
 import Foundation
 
-/// Runs a `DistinguishedPointSearch` from a private serial queue, with one walker per CPU core
-/// or thousands on the GPU, publishes progress on the main thread, and saves the search so it
-/// survives pauses and relaunches.
+/// Runs a `DistinguishedPointSearch` from a private serial queue, with walkers spread across the
+/// CPU cores or thousands on the GPU, publishes progress on the main thread, and saves the search so it
+/// survives pauses and relaunches. Bits, CPU or GPU, and the seed are fixed for a search; changing
+/// any of them starts a new one.
 final class HashSearch: ObservableObject {
 
     static let bitOptions = [24, 32, 40, 48, 56, 64, 80, 128, 256]
     static let defaultBits = 256
 
     @Published private(set) var bits: Int
+    @Published private(set) var usesGPU: Bool
+    /// The seed typed in settings. Empty means a random seed for each new search.
+    @Published private(set) var seedText: String
+    /// The current search's seed, typed or random.
+    @Published private(set) var seed: String
     @Published private(set) var count: UInt64
+    @Published private(set) var elapsed: Double
     @Published private(set) var hashesPerSecond: Double = 0
     @Published private(set) var isComputing = false
-    @Published private(set) var walkers: Int
-    @Published private(set) var storedPoints: Int
     @Published private(set) var collision: Collision?
-    @Published private(set) var usesGPU: Bool
     let isGPUAvailable = GPUWalker.isSupported
 
     /// How long all walkers run between progress updates.
     private static let roundSeconds = 0.05
-    private static let storageKey = "HashSearch.dp.v2"
+    private static let storageKey = "HashSearch.dp.v3"
     private static let usesGPUKey = "HashSearch.usesGPU"
+    private static let seedKey = "HashSearch.seed"
 
     // `search` is only touched on `queue`.
     private let queue = DispatchQueue(label: "Hasher.HashSearch", qos: .userInitiated)
@@ -41,23 +46,27 @@ final class HashSearch: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // Searches saved before seeds can't be resumed; drop them rather than keep megabytes around.
+        defaults.removeObject(forKey: "HashSearch.dp.v2")
+        let usesGPU = GPUWalker.isSupported && defaults.bool(forKey: Self.usesGPUKey)
+        let seedText = defaults.string(forKey: Self.seedKey) ?? ""
         let saved = defaults.data(forKey: Self.storageKey).flatMap { try? PropertyListDecoder().decode(DistinguishedPointSearch.self, from: $0) }
-        let search = saved ?? Self.makeSearch(bits: Self.defaultBits)
+        let search = saved ?? Self.makeSearch(bits: Self.defaultBits, usesGPU: usesGPU, seedText: seedText)
         self.search = search
-        usesGPU = isGPUAvailable && defaults.bool(forKey: Self.usesGPUKey)
+        self.usesGPU = usesGPU
+        self.seedText = seedText
+        seed = search.seed.text
         bits = search.step.bits
         count = search.hashes
-        walkers = search.walkers.count
-        storedPoints = search.points.count
+        elapsed = search.seconds
         collision = search.collision
     }
 
-    /// CPU and GPU walkers share one search, so its trail length must suit the GPU when there is one.
-    private static func makeSearch(bits: Int) -> DistinguishedPointSearch {
-        let step = HashStep(bits: bits)
-        let walkers = ProcessInfo.processInfo.activeProcessorCount
-        let dpBits = GPUWalker.isSupported ? GPUWalker.dpBits(bits: bits) : nil
-        return DistinguishedPointSearch(step: step, walkers: walkers, dpBits: dpBits)
+    /// GPU searches need longer trails, so the CPU can keep up with the points thousands of walkers report.
+    private static func makeSearch(bits: Int, usesGPU: Bool, seedText: String) -> DistinguishedPointSearch {
+        let seed = seedText.isEmpty ? Seed.random() : Seed(seedText)
+        let dpBits = usesGPU ? GPUWalker.dpBits(bits: bits) : nil
+        return DistinguishedPointSearch(bits: bits, seed: seed, dpBits: dpBits)
     }
 
     /// Expected hashes for a birthday-style search over `bits` bits: √(πN/2).
@@ -72,7 +81,7 @@ final class HashSearch: ObservableObject {
     func start() {
         guard !isComputing else { return }
         if collision != nil {
-            newSearch(bits: bits)
+            newSearch()
         }
         isComputing = true
         rateSample = nil
@@ -83,11 +92,17 @@ final class HashSearch: ObservableObject {
         }
     }
 
-    /// Switches between CPU and GPU walkers. Only allowed while paused.
-    func setUsesGPU(_ usesGPU: Bool) {
-        guard !isComputing, isGPUAvailable else { return }
+    /// Applies the settings screen. Any change pauses and starts a new search.
+    func configure(bits: Int, usesGPU: Bool, seedText: String) {
+        let usesGPU = usesGPU && isGPUAvailable
+        guard bits != self.bits || usesGPU != self.usesGPU || seedText != self.seedText else { return }
+        pause()
+        self.bits = bits
         self.usesGPU = usesGPU
+        self.seedText = seedText
         defaults.set(usesGPU, forKey: Self.usesGPUKey)
+        defaults.set(seedText, forKey: Self.seedKey)
+        newSearch()
     }
 
     func pause() {
@@ -98,17 +113,18 @@ final class HashSearch: ObservableObject {
         save()
     }
 
-    /// Starts over with a fresh salt. Only allowed while paused.
-    func newSearch(bits: Int) {
+    /// Starts over with the current settings: the typed seed, or a fresh random one. Only allowed while paused.
+    func newSearch() {
         guard !isComputing else { return }
-        self.bits = bits
+        let search = Self.makeSearch(bits: bits, usesGPU: usesGPU, seedText: seedText)
+        seed = search.seed.text
         count = 0
+        elapsed = 0
         collision = nil
-        storedPoints = 0
         bumpGeneration()
         queue.async { [weak self] in
             guard let self else { return }
-            self.search = Self.makeSearch(bits: bits)
+            self.search = search
             self.gpu = nil
             self.persist()
         }
@@ -121,6 +137,9 @@ final class HashSearch: ObservableObject {
     }
 
     private func persist() {
+        if let gpu {
+            search.gpuTrails = gpu.trailState
+        }
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         if let data = try? encoder.encode(search) {
@@ -145,6 +164,7 @@ final class HashSearch: ObservableObject {
     private func runBatch(generation: Int, onGPU: Bool) {
         guard isCurrent(generation) else { return }
 
+        let began = Date()
         let found: Collision?
         if onGPU, let gpu = gpuWalker() {
             let result = gpu.run(seconds: Self.roundSeconds)
@@ -152,8 +172,9 @@ final class HashSearch: ObservableObject {
         } else {
             found = search.run(seconds: Self.roundSeconds)
         }
+        search.seconds += Date().timeIntervalSince(began)
         let count = search.hashes
-        let storedPoints = search.points.count
+        let elapsed = search.seconds
         if found != nil {
             persist()
         }
@@ -161,7 +182,7 @@ final class HashSearch: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isCurrent(generation) else { return }
             self.count = count
-            self.storedPoints = storedPoints
+            self.elapsed = elapsed
             self.updateRate(count: count)
             if let found {
                 self.collision = found
@@ -180,8 +201,9 @@ final class HashSearch: ObservableObject {
 
     /// The GPU walkers for the current search, created on first use.
     private func gpuWalker() -> GPUWalker? {
-        if gpu?.step != search.step {
-            gpu = GPUWalker(step: search.step, dpBits: search.dpBits, maxTrailLength: search.maxTrailLength)
+        if gpu == nil {
+            gpu = GPUWalker(step: search.step, dpBits: search.dpBits, maxTrailLength: search.maxTrailLength,
+                            seed: search.gpuSeed, trails: search.gpuTrails)
         }
         return gpu
     }
